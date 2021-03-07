@@ -1,0 +1,33 @@
+kubernetes_context: microk8s
+kubernetes_namespace: awx
+kubernetes_awx_version: latest
+#kubernetes_image_pull_secrets: do_this
+pg_username: awx
+pg_database: awx
+pg_port: 5432
+admin_user: admin
+create_preload_data: False
+admin_password:  "fiddlestucks"
+awx_image: 'fimbaz-awx'
+docker_registry: 'localhost:32000'
+docker_registry_repository: fimbaz
+# task_cpu_request=1500
+# task_mem_request=2
+# task_cpu_limit=2000
+# task_mem_limit=4
+# web_cpu_limit=1000
+# web_mem_limit=2
+# redis_cpu_limit=1000
+# redis_mem_limit=3
+# management_cpu_limit=2000
+# management_mem_limit=2
+
+custom_venvs:
+  - name: fimbaz-awx
+    python: python3 # Defaults to python2
+    python_ansible_version: 2.10.5
+    python_modules:
+      - ansible-base==2.10.5
+      - python-gitlab
+      - netaddr
+      - hvac
