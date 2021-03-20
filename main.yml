@@ -1,0 +1,47 @@
+---
+- hosts: all
+  tasks:
+    - name: "Add authorized keys"
+      copy:
+        src: authorized_keys
+        dest: /root/.ssh/authorized_keys
+    - name: Update all packages to their latest version
+      apt:
+        name: "*"
+        state: latest
+        autoremove: yes
+    
+    - name: "Install snapd"
+      apt:
+        name: snapd
+        state: present
+
+    - name: "Install microk8s"
+      community.general.snap:
+        name: microk8s
+        state: present
+        classic: yes
+
+    - name: "Install wireguard"
+      apt:
+        name: wireguard
+        state: present
+
+    - name: "create wireguard keypair"
+      shell:
+        cmd: "wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey"
+        creates: "/etc/wireguard/*key"
+          
+    - name: "retrieve wireguard public key"
+      block:
+        - slurp:
+            src: /etc/wireguard/publickey
+          register: slurpfile
+        - set_fact:
+            wireguard_publickey: "{{ slurpfile['content'] | b64decode }}"
+    - name: "Insert public key into authorized_wires"
+      delegate_to: localhost
+      lineinfile:
+        line: "{{wireguard_publickey}}"
+        path: authorized_wires
+
