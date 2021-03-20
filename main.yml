@@ -31,13 +31,19 @@
         
     - name: reset
       file:
-        path: /etc/wireguard/wg0.conf
         state: absent
-
+        path: "/etc/wireguard/{{item}}"
+      loop: ["wg0.conf","privatekey","publickey"]
+          
     - name: "create wireguard keypair"
-      shell:
-        cmd: "wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey"
-        creates: "/etc/wireguard/*key"
+      block:
+      - shell:
+          cmd: "wg genkey > /etc/wireguard/privatekey"
+          creates: "/etc/wireguard/privatekey"
+
+      - shell:
+          cmd: "wg pubkey < /etc/wireguard/privatekey > /etc/wireguard/publickey"
+          creates: "/etc/wireguard/publickey"
           
     - name: "retrieve wireguard public key"
       block:
@@ -49,19 +55,20 @@
 
 - hosts: all
   tasks:
-    - name: "Create wireguard server configuration"
+    - name: "Create wg0.conf "
       blockinfile:
         path: /etc/wireguard/wg0.conf
         create: yes
         marker: "#WIREGUARD INTERFACE CONFIG"
         block: |
           [Interface]
-          PrivateKey = /etc/wireguard/privatekey
+          PostUp = wg set %i private-key /etc/wireguard/privatekey
           Address = {{wg0_ip}}/24
           ListenPort = {{wg0_port}}
           SaveConfig = false
 
-    - blockinfile:
+    - name: "Add known peers to wg0.conf"
+      blockinfile:
         path: /etc/wireguard/wg0.conf
         marker: "#PEER {{item}}"
         block: |
@@ -71,3 +78,6 @@
           Endpoint = {{ hostvars[item].wg0_endpoint }}
           {%endif%}
       loop: "{{ groups['kubevpc'] }}"
+    - name: 
+      command:
+        cmd: wg-quick up wg0
