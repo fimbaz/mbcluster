@@ -22,10 +22,17 @@
         state: present
         classic: yes
 
+- hosts: all
+  tasks:
     - name: "Install wireguard"
       apt:
         name: wireguard
         state: present
+        
+    - name: reset
+      file:
+        path: /etc/wireguard/wg0.conf
+        state: absent
 
     - name: "create wireguard keypair"
       shell:
@@ -39,9 +46,28 @@
           register: slurpfile
         - set_fact:
             wireguard_publickey: "{{ slurpfile['content'] | b64decode }}"
-    - name: "Insert public key into authorized_wires"
-      delegate_to: localhost
-      lineinfile:
-        line: "{{wireguard_publickey}}"
-        path: authorized_wires
 
+- hosts: all
+  tasks:
+    - name: "Create wireguard server configuration"
+      blockinfile:
+        path: /etc/wireguard/wg0.conf
+        create: yes
+        marker: "#WIREGUARD INTERFACE CONFIG"
+        block: |
+          [Interface]
+          PrivateKey = /etc/wireguard/privatekey
+          Address = {{wg0_ip}}/24
+          ListenPort = {{wg0_port}}
+          SaveConfig = false
+
+    - blockinfile:
+        path: /etc/wireguard/wg0.conf
+        marker: "#PEER {{item}}"
+        block: |
+          [Peer]
+          PublicKey = {{hostvars[item].wireguard_publickey}}
+          {%if hostvars[item].wg0_endpoint is defined %}
+          Endpoint = {{ hostvars[item].wg0_endpoint }}
+          {%endif%}
+      loop: "{{ groups['kubevpc'] }}"

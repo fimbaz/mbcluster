@@ -1,13 +1,14 @@
 kubernetes_context: microk8s
 kubernetes_namespace: awx
 kubernetes_awx_version: latest
+kubernetes_awx_image: "{{ docker_registry }}/{{ docker_registry_repository }}/{{ awx_image }}"
 #kubernetes_image_pull_secrets: do_this
 pg_username: awx
 pg_database: awx
 pg_port: 5432
 admin_user: admin
 create_preload_data: False
-admin_password:  "fiddlestucks"
+admin_password:  "fiddlestucks" #just try me
 awx_image: 'fimbaz-awx'
 docker_registry: 'localhost:32000'
 docker_registry_repository: fimbaz
@@ -31,3 +32,4 @@ custom_venvs:
       - python-gitlab
       - netaddr
       - hvac
+
