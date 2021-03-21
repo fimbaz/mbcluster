@@ -10,7 +10,13 @@
         name: "*"
         state: latest
         autoremove: yes
-    
+
+    - name: install ifupdown
+      apt:
+        name: ifupdown
+        state: present
+        autoremove: yes
+        
     - name: "Install snapd"
       apt:
         name: snapd
@@ -29,11 +35,15 @@
         name: wireguard
         state: present
         
-    - name: reset
-      file:
-        state: absent
-        path: "/etc/wireguard/{{item}}"
-      loop: ["wg0.conf","privatekey","publickey"]
+    - name: kick
+      block:
+      - file:
+          state: absent
+          path: "/etc/wireguard/{{item}}"
+        loop: ["wg0.conf","privatekey","publickey"]
+      - command:
+          cmd: ip link del dev wg0
+      tags: [ never ]
           
     - name: "create wireguard keypair"
       block:
@@ -51,7 +61,8 @@
             src: /etc/wireguard/publickey
           register: slurpfile
         - set_fact:
-            wireguard_publickey: "{{ slurpfile['content'] | b64decode }}"
+            wireguard_publickey: >-
+              {{ slurpfile['content'] | b64decode}}
 
 - hosts: all
   tasks:
@@ -59,25 +70,63 @@
       blockinfile:
         path: /etc/wireguard/wg0.conf
         create: yes
-        marker: "#WIREGUARD INTERFACE CONFIG"
+        marker: "#{mark} WIREGUARD INTERFACE CONFIG"
         block: |
           [Interface]
-          PostUp = wg set %i private-key /etc/wireguard/privatekey
-          Address = {{wg0_ip}}/24
           ListenPort = {{wg0_port}}
           SaveConfig = false
-
+          
+    - name: "Create wg0.conf "
+      blockinfile:
+        path: /etc/network/interfaces
+        create: yes
+        block: |
+          # interfaces(5) file used by ifup(8) and ifdown(8)
+          # Include files from /etc/network/interfaces.d:
+          source-directory /etc/network/interfaces.d
+          
     - name: "Add known peers to wg0.conf"
       blockinfile:
         path: /etc/wireguard/wg0.conf
-        marker: "#PEER {{item}}"
+        marker: "#{mark} PEER {{item}}"
         block: |
           [Peer]
           PublicKey = {{hostvars[item].wireguard_publickey}}
-          {%if hostvars[item].wg0_endpoint is defined %}
-          Endpoint = {{ hostvars[item].wg0_endpoint }}
-          {%endif%}
-      loop: "{{ groups['kubevpc'] }}"
-    - name: 
+          AllowedIPs = {{hostvars[item].wg0_ip}}/32
+          {%if hostvars[item].wg0_endpoint is defined %}Endpoint = {{ hostvars[item].wg0_endpoint }}{%endif%}
+          
+      loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
+
+    - name: "configure wireguard interfaces"
+      blockinfile:
+        create: yes
+        block: |
+          auto wg0
+          iface wg0 inet static
+            address {{wg0_ip}}/24
+          pre-up wg-quick up wg0
+          pre-up wg set wg0 private-key /etc/wireguard/privatekey
+          post-down wg-quick down wg0
+        path: /etc/network/interfaces.d/wg0
+
+    - name: "restart wireguard"
       command:
-        cmd: wg-quick up wg0
+        cmd: ifup wg0
+        
+    - name: "Ping peers to validate upness"
+      command:
+        cmd: ping -c1 {{hostvars[item].wg0_ip}}
+      loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
+
+- hosts: "kubevpc,!{{kubeseed}}"
+  tasks:
+    - name: get ticket and join cluster
+      block:
+        - delegate_to: "{{kubeseed}}"
+          shell:
+            cmd: "microk8s add-node"
+          register: nodecmd
+        - set_fact:
+            node_ticket: '{{nodecmd.stdout.split("\n")[-1].split("/")[-1]}}'
+        - shell:
+            cmd: "microk8s join {{hostvars[kubeseed].wg0_ip}}:25000/{{node_ticket}}"
