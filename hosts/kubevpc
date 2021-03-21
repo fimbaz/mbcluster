@@ -1,0 +1,4 @@
+[kubevpc]
+mother.taxon.us wg0_ip=10.0.55.11 wg0_port=19822 wg0_endpoint=mother.taxon.us:19822
+kolombus.local.taxon.us ansible_host=192.168.1.144 wg0_ip=10.0.55.144 wg0_port=2222
+
