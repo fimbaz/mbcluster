@@ -13,9 +13,42 @@
 
     - name: install ifupdown
       apt:
-        name: ifupdown
+        name: "{{item}}"
         state: present
         autoremove: yes
+      loop: [ifupdown,iptables-persistent]
+
+    - name: "change default FORWARD policy to ACCEPT"
+      copy:
+        dest: /etc/iptables/rules.v4
+        content: |
+          *filter
+          :FORWARD ACCEPT [0:0]
+          :INPUT ACCEPT [0:0]
+          :OUTPUT ACCEPT [0:0]
+          COMMIT
+
+          *nat
+          :PREROUTING ACCEPT [0:0]
+          :INPUT ACCEPT [0:0]
+          :POSTROUTING ACCEPT [0:0]
+          :OUTPUT ACCEPT [0:0]
+          COMMIT
+
+    - name: "enable persistent ipv4 forwarding via sysctl"
+      lineinfile:
+        path: /etc/sysctl.conf
+        line: "net.ipv4.ip_forward=1"
+
+    - name: "reload sysctl"
+      command:
+        cmd: "sysctl --system"
+          
+    - name: "Enable iptables rule persistence on boot"
+      systemd:
+        name: "netfilter-persistent"
+        state: started
+        enabled: yes
         
     - name: "Install snapd"
       apt:
@@ -61,8 +94,8 @@
             src: /etc/wireguard/publickey
           register: slurpfile
         - set_fact:
-            wireguard_publickey: >-
-              {{ slurpfile['content'] | b64decode}}
+            cacheable: yes
+            wireguard_publickey: "{{ (slurpfile['content'] | b64decode).split('\n') | first }}"
 
 - hosts: all
   tasks:
@@ -70,7 +103,7 @@
       blockinfile:
         path: /etc/wireguard/wg0.conf
         create: yes
-        marker: "#{mark} WIREGUARD INTERFACE CONFIG"
+        marker: "#{mark} WIREGUARD INTERFACE CONFIG\n"
         block: |
           [Interface]
           ListenPort = {{wg0_port}}
@@ -88,12 +121,14 @@
     - name: "Add known peers to wg0.conf"
       blockinfile:
         path: /etc/wireguard/wg0.conf
-        marker: "#{mark} PEER {{item}}"
-        block: |
+        marker: "#{mark} PEER {{item}}\n"
+        block: |-
           [Peer]
+          {% if hostvars[item].wg0_endpoint is defined %}
+          Endpoint = {{ hostvars[item].wg0_endpoint }}
+          {% endif %}
           PublicKey = {{hostvars[item].wireguard_publickey}}
           AllowedIPs = {{hostvars[item].wg0_ip}}/32
-          {%if hostvars[item].wg0_endpoint is defined %}Endpoint = {{ hostvars[item].wg0_endpoint }}{%endif%}
           
       loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
 
@@ -115,12 +150,25 @@
         
     - name: "Ping peers to validate upness"
       command:
-        cmd: ping -c1 {{hostvars[item].wg0_ip}}
+        cmd: "ping -c1 {{hostvars[item].wg0_ip}}"
       loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
 
-- hosts: "kubevpc,!{{kubeseed}}"
+- hosts: all
   tasks:
-    - name: get ticket and join cluster
+    - name: "get nodes in cluster"
+      delegate_to: "{{kubeseed}}"
+      delegate_facts: yes
+      block:
+        - shell:
+            cmd: "microk8s kubectl get nodes | tail -n+2 | tr -s ' ' | cut -d ' ' -f1"
+          register: get_nodes_cmd
+          run_once: yes
+        - set_fact:
+            cacheable: yes            
+            nodes_in_cluster: "{{get_nodes_cmd.stdout.split('\n')}}"
+          
+    - name: "get ticket and join cluster"
+      when:  kube_hostname not in hostvars[kubeseed].nodes_in_cluster
       block:
         - delegate_to: "{{kubeseed}}"
           shell:
@@ -130,3 +178,4 @@
             node_ticket: '{{nodecmd.stdout.split("\n")[-1].split("/")[-1]}}'
         - shell:
             cmd: "microk8s join {{hostvars[kubeseed].wg0_ip}}:25000/{{node_ticket}}"
+          when: inventory_hostname != kubeseed
