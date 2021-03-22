@@ -5,11 +5,21 @@
       copy:
         src: authorized_keys
         dest: /root/.ssh/authorized_keys
+
+    - name: "Add wg0 hosts records"
+      lineinfile:
+        path: /etc/hosts
+        regex: ".* {{hostvars[item].kube_hostname}}$"
+        line: "{{hostvars[item].wg0_ip}} {{ hostvars[item].kube_hostname }}"
+      loop: "{{groups['kubevpc']}}"
+
+      
     - name: Update all packages to their latest version
       apt:
         name: "*"
         state: latest
         autoremove: yes
+        update_cache: yes
 
     - name: install ifupdown
       apt:
@@ -145,6 +155,11 @@
         path: /etc/network/interfaces.d/wg0
 
     - name: "restart wireguard"
+      ignore_errors: yes
+      command:
+        cmd: ifdown wg0
+        
+    - name: "restart wireguard"
       command:
         cmd: ifup wg0
         
@@ -153,8 +168,7 @@
         cmd: "ping -c1 {{hostvars[item].wg0_ip}}"
       loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
 
-- hosts: all
-  tasks:
+      
     - name: "get nodes in cluster"
       delegate_to: "{{kubeseed}}"
       delegate_facts: yes

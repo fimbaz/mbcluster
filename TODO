@@ -1,0 +1,3 @@
+* install swap
+* ensure running kernel is up to date, or restart
+* disable hostkey checking
