@@ -1,4 +1,5 @@
 ---
+#TODO support 20.10
 - hosts: all
   tasks:
     - name: "Add authorized keys"
@@ -13,6 +14,24 @@
         line: "{{hostvars[item].wg0_ip}} {{ hostvars[item].kube_hostname }}"
       loop: "{{groups['kubevpc']}}"
 
+    - name: "Add swap to fstab"
+      lineinfile:
+        line: "/swap none            swap    sw              0       0"
+        path: /etc/fstab
+      register: line
+
+    - name: "install swapfile"
+      when: "line.changed"      
+      block:
+        - name: "Create swap file"
+          command:
+            cmd: "dd if=/dev/zero of=/swap count=10000 bs=1024k"
+            creates: /swap
+        - command:
+            cmd: "mkswap /swap; chmod 600 /swap"
+        - command:
+            cmd: "swapon -a"
+
       
     - name: Update all packages to their latest version
       apt:
@@ -21,29 +40,31 @@
         autoremove: yes
         update_cache: yes
 
+    - name: "check if reboot is required"
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_required_cmd
+      
+    - name: Reboot box if kernel/libs updated and requested by the system
+      block:
+        - name: "Restarting"
+          shell: sleep 10 && /sbin/shutdown -r now 'Rebooting box to update system libs/kernel as needed' 
+          async: 300
+          poll: 0
+
+        - name: Wait for system to become reachable again
+          wait_for_connection:
+            delay: 20
+            timeout: 300
+      when: "reboot_required_cmd.stat.exists"
+
+          
     - name: install ifupdown
       apt:
         name: "{{item}}"
         state: present
         autoremove: yes
       loop: [ifupdown,iptables-persistent]
-
-    - name: "change default FORWARD policy to ACCEPT"
-      copy:
-        dest: /etc/iptables/rules.v4
-        content: |
-          *filter
-          :FORWARD ACCEPT [0:0]
-          :INPUT ACCEPT [0:0]
-          :OUTPUT ACCEPT [0:0]
-          COMMIT
-
-          *nat
-          :PREROUTING ACCEPT [0:0]
-          :INPUT ACCEPT [0:0]
-          :POSTROUTING ACCEPT [0:0]
-          :OUTPUT ACCEPT [0:0]
-          COMMIT
 
     - name: "enable persistent ipv4 forwarding via sysctl"
       lineinfile:
@@ -54,23 +75,6 @@
       command:
         cmd: "sysctl --system"
           
-    - name: "Enable iptables rule persistence on boot"
-      systemd:
-        name: "netfilter-persistent"
-        state: started
-        enabled: yes
-        
-    - name: "Install snapd"
-      apt:
-        name: snapd
-        state: present
-
-    - name: "Install microk8s"
-      community.general.snap:
-        name: microk8s
-        state: present
-        classic: yes
-
 - hosts: all
   tasks:
     - name: "Install wireguard"
@@ -168,6 +172,19 @@
         cmd: "ping -c1 {{hostvars[item].wg0_ip}}"
       loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
 
+- hosts: all
+  tasks:
+    - name: "Install snapd"
+      apt:
+        name: snapd
+        state: present
+
+    - name: "Install microk8s"
+      community.general.snap:
+        name: microk8s
+        state: present
+        classic: yes
+        channel: edge
       
     - name: "get nodes in cluster"
       delegate_to: "{{kubeseed}}"
@@ -180,8 +197,9 @@
         - set_fact:
             cacheable: yes            
             nodes_in_cluster: "{{get_nodes_cmd.stdout.split('\n')}}"
-          
+            
     - name: "get ticket and join cluster"
+      tags: never
       when:  kube_hostname not in hostvars[kubeseed].nodes_in_cluster
       block:
         - delegate_to: "{{kubeseed}}"
