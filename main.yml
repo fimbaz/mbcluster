@@ -28,7 +28,9 @@
             cmd: "dd if=/dev/zero of=/swap count=10000 bs=1024k"
             creates: /swap
         - command:
-            cmd: "mkswap /swap; chmod 600 /swap"
+            cmd: "mkswap /swap"
+        - command:
+            cmd: "chmod 600 /swap"
         - command:
             cmd: "swapon -a"
 
@@ -104,7 +106,8 @@
           
     - name: "retrieve wireguard public key"
       block:
-        - slurp:
+        - name: "slurp public key from file on remote"
+          slurp:
             src: /etc/wireguard/publickey
           register: slurpfile
         - set_fact:
@@ -199,7 +202,6 @@
             nodes_in_cluster: "{{get_nodes_cmd.stdout.split('\n')}}"
             
     - name: "get ticket and join cluster"
-      tags: never
       when:  kube_hostname not in hostvars[kubeseed].nodes_in_cluster
       block:
         - delegate_to: "{{kubeseed}}"

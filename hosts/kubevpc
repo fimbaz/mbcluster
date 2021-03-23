@@ -1,5 +1,5 @@
 [kubevpc]
 mother.taxon.us wg0_ip=192.168.55.11 wg0_port=19822 wg0_endpoint=mother.taxon.us:19822 kube_hostname=mother
 kolombus.local.taxon.us ansible_host=192.168.1.144 wg0_ip=192.168.55.144 wg0_port=2222 kube_hostname=kolombus
-morpo.taxon.us wg0_ip=192.168.55.12 wg0_port=21912 wg0_endpoint=morpo.taxon.us:21912 kube_hostname=morpo ansible_host=144.202.105.234 ansible_ssh_password='(cP9zea*hWGmFs=#'
+morpo.taxon.us wg0_ip=192.168.55.12 wg0_port=21912 wg0_endpoint=morpo.taxon.us:21912 kube_hostname=morpo ansible_host=144.202.105.234
 
