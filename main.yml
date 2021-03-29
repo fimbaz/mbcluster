@@ -25,7 +25,7 @@
       block:
         - name: "Create swap file"
           command:
-            cmd: "dd if=/dev/zero of=/swap count=10000 bs=1024k"
+            cmd: "fallocate -l 10G /swap"
             creates: /swap
         - command:
             cmd: "mkswap /swap"
@@ -34,6 +34,13 @@
         - command:
             cmd: "swapon -a"
 
+    - name: Install tgt and open-scsi
+      apt:
+        name: "{{item}}"
+        state: present
+        autoremove: yes
+        update_cache: yes
+      loop: [tgt open-iscsi]
       
     - name: Update all packages to their latest version
       apt:
@@ -76,7 +83,7 @@
     - name: "reload sysctl"
       command:
         cmd: "sysctl --system"
-          
+    
 - hosts: all
   tasks:
     - name: "Install wireguard"
@@ -92,6 +99,9 @@
         loop: ["wg0.conf","privatekey","publickey"]
       - command:
           cmd: ip link del dev wg0
+      - command:
+          cmd: dd if=/dev/zero of={{ceph_device}} bs=1024k count=10
+        
       tags: [ never ]
           
     - name: "create wireguard keypair"
@@ -175,6 +185,57 @@
         cmd: "ping -c1 {{hostvars[item].wg0_ip}}"
       loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
 
+
+- hosts: all
+  tasks:
+    - name: Install SCSI config
+      blockinfile:
+        path: /etc/tgt/conf.d/rook_iscsi.conf
+        create: yes
+        block: |
+          <target iqn.0000-00.node-001.local:rook>
+            backing-store /var/lib/devices/disk-001.img
+            initiator-address 127.0.0.1
+            incominguser iscsi-user random_password
+            outgoinguser iscsi-target random_password_out
+          </target>
+    - name: Enable iscsi daemon
+      systemd:
+        name: tgt
+        state: restarted
+        enabled: yes
+        
+    - name: "configure iscsi initiator"
+      command:
+        cmd: iscsiadm -m discovery -t st -p 127.0.0.1
+
+    - name: foo
+      block:
+        - lineinfile:
+            line: |
+              node.session.auth.authmethod = CHAP
+            regex: node.session.auth.authmethod
+        - lineinfile: 
+            line: |
+              node.session.auth.username = iscsi-user
+            regex: node.session.auth.username
+        - lineinfile:
+            line: |
+              node.session.auth.password = random_password
+            regex: node.session.auth.password
+        - lineinfile:
+            line: |
+              node.session.auth.username_in = iscsi-target
+            regex: node.session.auth.username_in
+        - lineinfile:
+            line: |
+              node.session.auth.password_in = random_password_out
+            regex: node.session.auth.password_in
+        - lineinfile:
+            line: |-
+              node.conn[0].startup \= manual
+            regex: "node.conn\\[0\\].startup"
+          
 - hosts: all
   tasks:
     - name: "Install snapd"
@@ -188,7 +249,12 @@
         state: present
         classic: yes
         channel: edge
-      
+
+    - name: "create /var/lib/rook"
+      file:
+        path: "/var/snap/microk8s/current/var/lib/rook"
+        state:  directory
+
     - name: "get nodes in cluster"
       delegate_to: "{{kubeseed}}"
       delegate_facts: yes
