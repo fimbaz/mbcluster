@@ -205,7 +205,7 @@
             
     - name: "Create scsi drive"
       command:
-        cmd: "fallocate -l {{(freespace.stdout | int) - 6000}}M {{scsi_img}}"
+        cmd: "fallocate -l {{(freespace.stdout | int) - 16000}}M {{scsi_img}}"
         creates: "{{scsi_img}}"
             
     - name: Install tgt and open-scsi
@@ -321,5 +321,5 @@
         - set_fact:
             node_ticket: '{{nodecmd.stdout.split("\n")[-1].split("/")[-1]}}'
         - shell:
-            cmd: "microk8s join {{hostvars[kubeseed].wg0_ip}}:25000/{{node_ticket}}"
+            cmd: "echo microk8s join {{hostvars[kubeseed].wg0_ip}}:25000/{{node_ticket}}"
           when: inventory_hostname != kubeseed
