@@ -1,7 +1,9 @@
 ---
 #TODO support 20.10
 - hosts: all
+  gather_facts: no
   tasks:
+    
     - name: "Add authorized keys"
       copy:
         src: authorized_keys
@@ -34,14 +36,6 @@
         - command:
             cmd: "swapon -a"
 
-    - name: Install tgt and open-scsi
-      apt:
-        name: "{{item}}"
-        state: present
-        autoremove: yes
-        update_cache: yes
-      loop: [tgt open-iscsi]
-      
     - name: Update all packages to their latest version
       apt:
         name: "*"
@@ -85,6 +79,7 @@
         cmd: "sysctl --system"
     
 - hosts: all
+  gather_facts: no
   tasks:
     - name: "Install wireguard"
       apt:
@@ -125,6 +120,7 @@
             wireguard_publickey: "{{ (slurpfile['content'] | b64decode).split('\n') | first }}"
 
 - hosts: all
+  gather_facts: no
   tasks:
     - name: "Create wg0.conf "
       blockinfile:
@@ -183,60 +179,108 @@
     - name: "Ping peers to validate upness"
       command:
         cmd: "ping -c1 {{hostvars[item].wg0_ip}}"
+      retries: 3
+      delay: 3
+      register: result
+      until: result.rc == 0
       loop: "{{ groups['kubevpc'] | reject('in',[inventory_hostname]) }}"
-
+      
 
 - hosts: all
+  gather_facts: no
   tasks:
+    - set_fact:
+        scsi_dev: "/dev/disk/by-path/ip-127.0.0.1:3260-iscsi-iqn.0000-00.node-001.local:rook-lun-1"
+        scsi_img: /ceph
+        scsi_cfg: |-
+          /etc/iscsi/nodes/iqn.0000-00.node-001.local:rook/127.0.0.1,3260,1/default
+
+    - name: get free space
+      block:
+        - shell:
+            cmd: "echo -n $(( ($(df  / | tail -n-1 | tr -s ' ' | cut -d ' ' -f2,3 | tr ' ' '-'))/(1024) ))"
+          register: freespace
+        - set_fact:
+            root_free_space: "{{freespace}}"
+            
+    - name: "Create scsi drive"
+      command:
+        cmd: "fallocate -l {{(freespace.stdout | int) - 6000}}M {{scsi_img}}"
+        creates: "{{scsi_img}}"
+            
+    - name: Install tgt and open-scsi
+      apt:
+        name: "{{item}}"
+        state: present
+        autoremove: yes
+        update_cache: yes
+      loop: [tgt,open-iscsi]
+      
     - name: Install SCSI config
       blockinfile:
         path: /etc/tgt/conf.d/rook_iscsi.conf
         create: yes
         block: |
           <target iqn.0000-00.node-001.local:rook>
-            backing-store /var/lib/devices/disk-001.img
+            backing-store {{scsi_img}}
             initiator-address 127.0.0.1
             incominguser iscsi-user random_password
             outgoinguser iscsi-target random_password_out
           </target>
-    - name: Enable iscsi daemon
+
+    - name: Enable tgtd
       systemd:
         name: tgt
         state: restarted
         enabled: yes
-        
+          
     - name: "configure iscsi initiator"
       command:
         cmd: iscsiadm -m discovery -t st -p 127.0.0.1
 
-    - name: foo
+
+    - name: "configure scsi more"
       block:
         - lineinfile:
+            path: "{{scsi_cfg}}"
             line: |
               node.session.auth.authmethod = CHAP
             regex: node.session.auth.authmethod
-        - lineinfile: 
+        - lineinfile:
+            path: "{{scsi_cfg}}"
             line: |
               node.session.auth.username = iscsi-user
             regex: node.session.auth.username
         - lineinfile:
+            path: "{{scsi_cfg}}"            
             line: |
               node.session.auth.password = random_password
             regex: node.session.auth.password
         - lineinfile:
+            path: "{{scsi_cfg}}"            
             line: |
               node.session.auth.username_in = iscsi-target
             regex: node.session.auth.username_in
         - lineinfile:
+            path: "{{scsi_cfg}}"            
             line: |
               node.session.auth.password_in = random_password_out
             regex: node.session.auth.password_in
         - lineinfile:
+            path: "{{scsi_cfg}}"            
             line: |-
-              node.conn[0].startup \= manual
+              node.conn[0].startup = automatic
             regex: "node.conn\\[0\\].startup"
+    - name: Enable open-iscsi daemon
+      systemd:
+        name: open-iscsi
+        state: restarted
+        enabled: yes
+        
+        
           
 - hosts: all
+  gather_facts: no
   tasks:
     - name: "Install snapd"
       apt:

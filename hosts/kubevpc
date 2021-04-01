@@ -1,5 +1,6 @@
 [kubevpc]
-mother.taxon.us wg0_ip=192.168.55.11 wg0_port=19822 wg0_endpoint=mother.taxon.us:19822 kube_hostname=mother
-kolombus.local.taxon.us ansible_host=192.168.1.144 wg0_ip=192.168.55.144 wg0_port=2222 kube_hostname=kolombus
-morpo.taxon.us wg0_ip=192.168.55.12 wg0_port=21912 wg0_endpoint=morpo.taxon.us:21912 kube_hostname=morpo ansible_host=144.202.105.234
-
+mother.taxon.us wg0_ip=192.168.55.11 wg0_port=19822 wg0_endpoint=mother.taxon.us:19822 kube_hostname=mother ceph_device=/dev/vdb
+kolombus.local.taxon.us ansible_host=192.168.1.144 wg0_ip=192.168.55.144 wg0_port=2222 kube_hostname=kolombus ceph_device=/dev/sdb
+morpo.taxon.us wg0_ip=192.168.55.12 wg0_port=21912 wg0_endpoint=morpo.taxon.us:21912 kube_hostname=morpo ansible_host=149.28.67.8
+#monty.taxon.us wg0_ip=192.168.55.133 wg0_port=12335 wg0_endpoint=monty.taxon.us:12335 kube_hostname=monty
+moriarity.taxon.us wg0_ip=192.168.55.121 wg0_port=21913 wg0_endpoint=149.28.93.174:21913 kube_hostname=moriarty ansible_host=149.28.93.174
