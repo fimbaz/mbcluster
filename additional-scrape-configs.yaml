@@ -1,0 +1,7 @@
+apiVersion: v1
+data:
+  scraper.yml: LSBqb2JfbmFtZTogInByb21ldGhldXMiCiAgc3RhdGljX2NvbmZpZ3M6CiAgLSB0YXJnZXRzOiBbIjE5Mi4xNjguMS4zODo5MDkwIl0K
+kind: Secret
+metadata:
+  creationTimestamp: null
+  name: additional-scrape-configs
